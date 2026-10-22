@@ -1,0 +1,691 @@
+<HTML>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+	<link rel="stylesheet" href="theme.css">
+	<script src="js/common.js" language="javascript"></script>
+	<script src="jsc/base16.js" language="javascript"></script>
+	<script src="jsp/jsencrypt.min.js" language="javascript"></script>
+	<script language="javascript" id="clientEventHandlersJS">
+<!--
+	// https://github.com/JuneAndGreen/sm-crypto
+	// https://github.com/kjur/jsrsasign
+	// https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/generateKey
+	// https://cdn.bootcdn.net/ajax/libs/jsencrypt/3.2.1/jsencrypt.min.js
+	// ljc sm2.doSignature和doVerifySignature的options支持{input:"hex"}
+	// 在调用sm2、sm3输入数组，不支持Uint8Array， 由于内部调用map函数
+
+function parseDer(s, offset){
+	offset = offset || 0;
+	var result = [];
+	var slen = s.length >> 1;
+	while (offset < slen){
+		var tag = parseInt(s.substr(offset*2, 2), 16);
+		var len = parseInt(s.substr((offset+1)*2, 2), 16);
+		offset += 2;
+		if (len & 0x80){
+			var lenSize = (len & 0x7F);
+			len = parseInt(s.substr(offset*2, lenSize*2), 16);
+			offset += lenSize;
+		}
+		
+		if ((tag === 0x03) || ((tag === 0x02) && (s.substr(offset*2, 2) === "00"))){
+			offset ++;
+			len --;
+		}
+		
+		var value = (tag & 0x20)? parseDer(s, offset) : s.substr(offset*2, len*2);
+		
+		offset += len;
+		result.push({tag:tag, value:value});
+	}
+	return result;
+}
+function makeDer(items){
+	var s = "";
+	for (var i=0; i<items.length; i++){
+		var tag = items[i].tag;
+		var value = items[i].value; 
+		if (typeof(value) === "object"){	
+			value = makeDer(value);
+		}else if ((tag === 0x03) || ((tag === 0x02) && (parseInt(value.substr(0, 2),16) >= 0x80))){
+			value = "00" + value;
+		}
+		var len = value.length >> 1;
+
+		s += ("0" + tag.toString(16)).slice(-2); // t
+
+		var len_s = len.toString(16);
+		if (len_s.length & 1){
+			len_s = "0" + len_s;
+		}
+		s += ((len < 0x80)? len_s : (0x80 | (len_s.length >> 1)).toString(16) + len_s); // l
+			
+		s += value; // v
+	}
+	return s;
+}
+function autoFix(s){
+	var rlen = s.length % 16;
+	return (rlen > 0)? ("0".repeat(16-rlen) + s) : s;
+}
+
+function HTML_Load(){
+	$("txtE").value = "010001";
+	$("txtAreaInput").value = "";
+	$("txtAreaOutput").value = "";
+	
+	$("ButtonCalcN").style.display = "none";
+	$("ButtonCalcD").style.display = "none";
+	$("ButtonCalcDMP1").style.display = "none";
+	$("ButtonCalcDMQ1").style.display = "none";
+	$("ButtonCalcIQMP").style.display = "none";
+	
+	SelectKeyType_onchange();
+	
+	loadScript(["jsp/sm2.js", "jsp/sm3.js", "jsawait/subtle.js"]);
+}
+
+function HTML_Unload(){
+}
+
+
+function HTML_getValue(name){
+	var s = $(name).value;
+	return s.replace(/ /g, "").replace(new RegExp("\r\n", "g"), "");
+}
+
+function HTML_getSelect(name){
+	var element = $(name);
+	return element.options[element.selectedIndex];
+}
+
+function HTML_buildRSA(bPrivate){
+	var items = [];
+	items.push({tag:0x02, value:$("txtN").value});
+	items.push({tag:0x02, value:$("txtE").value});
+	if (bPrivate){
+		items.unshift({tag:0x02, value:"00"});
+		items.push({tag:0x02, value:$("txtD").value});
+		if ($("txtP").value){
+			items.push({tag:0x02, value:$("txtP").value});
+			items.push({tag:0x02, value:$("txtQ").value});
+			items.push({tag:0x02, value:$("txtDMP1").value});
+			items.push({tag:0x02, value:$("txtDMQ1").value});
+			items.push({tag:0x02, value:$("txtIQMP").value});
+		}
+	}
+	var rawKey = makeDer([{tag:0x30, value:items}]);
+
+	// pkcs8 / spki
+	var items_shell = [{tag:0x30, value:[{tag:0x06, value:"2a864886f70d010101"}, {tag:0x05, value:""}]},
+		{tag:0x03, value:rawKey}];
+	if (bPrivate){
+		items_shell[1].tag = 0x04;
+		items_shell.unshift({tag:0x02, value:"00"});
+	}
+	return makeDer([{tag:0x30, value:items_shell}]);
+}
+
+function HTML_buildEC(bPrivate){
+	var N = $("txtN").value;
+	if (N.substr(0,2) !== "04"){
+		N = "04" + N;
+	}
+	
+	var oid = HTML_getSelect("SelectKeyParam").value;
+	if (bPrivate){
+		var items = [{tag:0x02, value:"01"}];
+		items.push({tag:0x04, value:$("txtD").value});
+		items.push({tag:0xA0, value:[{tag:0x06, value:oid}]});
+		items.push({tag:0xA1, value:[{tag:0x03, value:N}]});
+		var priKey = makeDer([{tag:0x30, value:items}]);
+
+		var items_p8 = [{tag:0x02, value:"00"}, // pkcs8
+			{tag:0x30, value:[{tag:0x06, value:"2a8648ce3d0201"}, {tag:0x06, value:oid}]},
+			{tag:0x04, value:priKey}];
+		return makeDer([{tag:0x30, value:items_p8}]);
+	}else{
+		var items_spki = [{tag:0x30, value:[{tag:0x06, value:"2a8648ce3d0201"}, {tag:0x06, value:oid}]},  // spki
+			{tag:0x03, value:N}];
+		return makeDer([{tag:0x30, value:items_spki}]);
+	}	
+}
+
+function HTML_getNormalInput(keyUsage){
+	var hex2u8a = function(hs) { return new Uint8Array(jsc.base16.decode(hs, {output: 'array'})); };
+
+	var data = {"keyType":HTML_getSelect("SelectKeyType").text, subtle:{}};
+	data.padding = HTML_getSelect("SelectPadding").text
+	data.hashName = HTML_getSelect("SelectDigestName").text;
+	if (data.curveName === "SM2"){
+		data.data = HTML_getValue("txtAreaInput");
+		return data;
+	}
+	
+	if (data.keyType === "RSA"){
+		data.keyBits = parseInt(HTML_getSelect("SelectKeyParam").text);
+		if (!keyUsage){ // RsaHashedKeyGenParams
+			data.pubexp = $("txtE").value;
+			data.subtle.algorithm = {name:"RSASSA-PKCS1-v1_5", modulusLength:data.keyBits, publicExponent: hex2u8a(data.pubexp), hash: "SHA-256"};
+		}else{ // RsaHashedImportParams={name,hash}, RsaPssParams={name,saltLength}, RsaOaepParams={name,label}
+			var algorithmNameMap = {"RSA_PKCS1_OAEP_PADDING":"RSA-OAEP", "RSA_PKCS1_PSS_PADDING":"RSA-PSS"};
+			data.subtle.algorithm = {name:(algorithmNameMap[data.padding]||"RSASSA-PKCS1-v1_5"), hash: data.hashName};
+			data.subtle.algorithm2 = {name: data.subtle.algorithm.name, saltLength:0};
+		}
+	}else{
+		data.curveName = HTML_getSelect("SelectKeyParam").text;
+
+		var namedCurveMap = {SM2:"SM2", prime256v1:"P-256", secp384r1:"P-384", secp521r1:"P-521"};
+		data.subtle.algorithm = {name: "ECDSA", namedCurve: namedCurveMap[data.curveName]};
+		if (!keyUsage){ // EcKeyGenParams
+			data.subtle.algorithm.hash = "SHA-256";
+		}else{ // EcKeyImportParams={name,namedCurve}, EcdsaParams={name,hash}
+			data.subtle.algorithm2 = {name: "ECDSA", hash: data.hashName};
+		}
+	}
+
+	if (!keyUsage){
+		data.subtle.format = "pkcs8";
+		data.subtle.keyUsages = ["sign", "verify"];
+	}else{
+		data.data = HTML_getValue("txtAreaInput");
+		data.subtle.keyUsages = [keyUsage];
+		if ((keyUsage === "sign") || (keyUsage === "decrypt")){
+			data.priKey = (data.keyType === "RSA")? HTML_buildRSA(true) : HTML_buildEC(true); // pkcs8
+			data.subtle.format = "pkcs8";
+			data.subtle.keyData = hex2u8a(data.priKey);
+			Debug.writeln("priKey(pkcs8): " + data.priKey);
+		}else{
+			data.pubKey = (data.keyType === "RSA")? HTML_buildRSA(false) : HTML_buildEC(false); // spki
+			data.subtle.format = "spki"; // SubjectPublicKeyInfo 
+			data.subtle.keyData = hex2u8a(data.pubKey);
+			Debug.writeln("pubKey(spki): " + data.pubKey);
+		}
+		data.subtle.data = hex2u8a(data.data);
+	}
+	
+	return data;
+}
+
+
+function SelectKeyType_onchange(){
+	var keyParam = $("SelectKeyParam");
+	var padding = $("SelectPadding");
+	var digestName = $("SelectDigestName");
+	keyParam.options.length = 0;
+	padding.options.length = 0;
+	if (HTML_getSelect("SelectKeyType").text === "RSA"){
+		keyParam.add(new Option("1024"));
+		keyParam.add(new Option("2048"));
+		keyParam.add(new Option("4096"));
+		keyParam.selectedIndex = 1;
+		
+		padding.add(new Option("RSA_PKCS1_PADDING", 1));
+		padding.add(new Option("RSA_SSLV23_PADDING", 2));
+		padding.add(new Option("RSA_NO_PADDING", 3))
+		padding.add(new Option("RSA_PKCS1_OAEP_PADDING", 4));
+		padding.add(new Option("RSA_PKCS1_PSS_PADDING", 5));
+		padding.selectedIndex = 0;
+		
+		digestName.selectedIndex = 1; // SHA256
+	}else{
+		keyParam.add(new Option("SM2", "2A811CCF5501822D"));
+		//keyParam.add(new Option("prime192v1", "2A8648CE3D030101"));
+		keyParam.add(new Option("prime256v1", "2A8648CE3D030107"));
+		keyParam.add(new Option("secp384r1", "2B81040022"));
+		keyParam.add(new Option("secp521r1", "2B81040023"));
+		keyParam.selectedIndex = 0;
+			
+		padding.add(new Option("DER"));
+		padding.add(new Option("RS"));
+		padding.add(new Option("C1C2C3"))
+		padding.add(new Option("C1C3C2"));
+		padding.selectedIndex = 0;
+		
+		digestName.selectedIndex = 4; // SM3
+	}
+}
+
+function SelectKeyParam_onchange(){
+	if (HTML_getSelect("SelectKeyType").text === "EC"){
+		var digestName = $("SelectDigestName");
+		if (HTML_getSelect("SelectKeyParam").text === "SM2"){
+			digestName.selectedIndex = 4; // SM3
+		}else{
+			digestName.selectedIndex = 1; // SHA256
+		}
+	}
+}
+
+function btnGenKey_onclick() {
+	var setValueAndOuput = function(name, value){
+		$("txt" + name).value = value; 
+		Debug.writeln(name + ": " + value);
+	};
+	var outputKeyInfo = function(vlist){
+		Debug.writeln("------------------Gen Key------------------");
+		if (vlist[2].tag === 0xA1){
+			setValueAndOuput("N",  vlist[2].value[0].value); 
+			setValueAndOuput("D",  vlist[1].value);
+			$("txtP").value = "";
+			$("txtQ").value = "";
+			$("txtDMP1").value = "";
+			$("txtDMQ1").value = "";
+			$("txtIQMP").value = "";
+		}else{
+			setValueAndOuput("N",  vlist[1].value); 
+			setValueAndOuput("E",  vlist[2].value); 
+			setValueAndOuput("D",  vlist[3].value);
+			setValueAndOuput("P",  vlist[4].value); 
+			setValueAndOuput("Q",  vlist[5].value); 
+			setValueAndOuput("DMP1",  vlist[6].value); 
+			setValueAndOuput("DMQ1",  vlist[7].value); 
+			setValueAndOuput("IQMP",  vlist[8].value);
+		}
+	};
+
+	try{
+		var data = HTML_getNormalInput();
+		if (data.curveName === "SM2"){
+			var keypair = sm2.generateKeyPairHex();
+			outputKeyInfo([{}, {value:keypair.privateKey}, {tag:0xA1, value:[{value:keypair.publicKey}]}]);
+		}else{
+			subtle_generateKey(data.subtle).then(function(r){
+				var privateKey = jsc.base16.encode(r);
+				setValueAndOuput("AreaOutput", privateKey); 
+
+				var vlist = parseDer(parseDer(privateKey)[0].value[2].value)[0].value;
+				outputKeyInfo(vlist);
+			}).then(function(){}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnSign_onclick() {
+	try{
+		var data = HTML_getNormalInput("sign");
+		if (data.curveName === "SM2"){
+			var msg = data.data;
+			var options = {input:"hex", hash:true, der: (data.padding === "DER")}
+			if (!msg){
+				msg = HTML_getValue("txtDigest");
+				if (!msg){
+					alert("请输入数据或摘要结果！");
+					return;
+				}
+				options.hash = false;
+			}
+							
+			var privateKey = HTML_getValue("txtD");
+			var sigValueHex = sm2.doSignature(msg, privateKey, options);
+			$("txtAreaOutput").value = sigValueHex;
+		}else{
+			if (!data.data && (data.keyType === "RSA")){
+				const md = HTML_getValue("txtDigest");
+				const hashName = data.hashName.replace("-", "").toLowerCase();
+				const key = btoa(String.fromCharCode.apply(null, hexString2Array(data.priKey)));
+				const crypt = new JSEncrypt();
+				crypt.setPrivateKey(key);
+				const sig = crypt.sign(md, (s) => s, hashName);
+				$("txtAreaOutput").value = sig || "sign fail！";  // jsc.base16.encode(atob(enc))
+				return;
+			}
+			if (!data.data){
+				return;
+			}
+
+			subtle_sign(data.subtle).then(function(r){
+				var signature = jsc.base16.encode(r);
+				if ((data.keyType === "EC") && (data.padding === "DER")) {
+					var partLen = signature.length >> 1;
+					var items = [{tag:0x02, value:signature.substr(0,partLen)}, {tag:0x02, value:signature.substr(partLen)}];
+					signature = makeDer([{tag:0x30, value:items}]);
+				}
+				$("txtAreaOutput").value = signature; 
+			}).then(function(){}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnVerify_onclick() {
+	try{
+		var data = HTML_getNormalInput("verify");
+		if (data.curveName === "SM2"){
+			var msg = data.data;
+			var options = {input:"hex", hash:true, der: (data.padding === "DER")}
+			if (!msg){
+				msg = HTML_getValue("txtDigest");
+				if (!msg){
+					alert("请输入数据或摘要结果！");
+					return;
+				}
+				options.hash = false;
+			}
+							
+			var publicKey = HTML_getValue("txtN");
+			var signature = HTML_getValue("txtAreaOutput");
+			var verifyResult = sm2.doVerifySignature(msg, signature, publicKey, options);
+			Debug.writeln("sm2.doVerifySignature:" + verifyResult);
+			alert((options.hash? "摘要" : "") + (verifyResult? "签名验证通过" : "签名验证失败"));
+		}else{
+			var signature = HTML_getValue("txtAreaOutput");
+			if (!data.data && (data.keyType === "RSA")){
+				const md = HTML_getValue("txtDigest");
+				const key = btoa(String.fromCharCode.apply(null, hexString2Array(data.pubKey)));
+				const crypt = new JSEncrypt();
+				crypt.setPublicKey(key);
+				const vr = crypt.verify(md, signature, (s) => s); // signature=btoa(String.fromCharCode.apply(null, hexString2Array(signature)))
+				Debug.writeln("JSEncrypt.verify:" + vr);
+				return;
+			}
+
+			if (!data.data){
+				alert("请输入数据！暂不支持摘要结果签名！");
+				return;
+			}
+
+			if ((data.keyType === "EC") && (data.padding === "DER")) {
+				var vlist = parseDer(signature)[0].value;
+				signature = autoFix(vlist[0].value) + autoFix(vlist[1].value);
+			}
+			data.subtle.signature = new Uint8Array(jsc.base16.decode(signature, {output: 'array'}));
+			subtle_verify(data.subtle).then(function(r){
+				Debug.writeln("crypto.subtle.verify:" + r);
+				if (!r){
+					alert("call crypto.subtle.verify fail!");
+				}
+			}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnEncrypt_onclick() {
+	try{
+		var data = HTML_getNormalInput("encrypt");
+		if (!data.data){
+			alert("请先输入待加密数据！");
+			return;
+		}
+		
+		if (data.curveName === "SM2"){
+			var publicKey = HTML_getValue("txtN");			
+			var cipherMode = (data.padding === "C1C2C3")? 0 : 1; // 1 - C1C3C2，0 - C1C2C3，默认为1
+			var encryptData  = sm2.doEncrypt(jsc.base16.decode(data.data, {output: 'array'}), publicKey, cipherMode);
+			if (data.padding === "DER"){
+				var items = [{tag:0x02, value:encryptData.substr(0,0x20*2)},
+					{tag:0x02, value:encryptData.substr(0x20*2,0x20*2)},
+					{tag:0x04, value:encryptData.substr(0x40*2,0x20*2)},
+					{tag:0x04, value:encryptData.substr(0x60*2)}];
+				$("txtAreaOutput").value = makeDer([{tag:0x30, value:items}]);
+			}
+			else {
+				$("txtAreaOutput").value = "04" + encryptData;
+			}
+		}else{
+			if (data.keyType === "EC"){
+				alert("ECDSA 不支持加密！");
+				return;
+			}
+			
+			if ((data.padding === "RSA_SSLV23_PADDING") || (data.padding === "RSA_PKCS1_PSS_PADDING")){
+				alert("RSA加密不支持该PADDING！");
+				return;
+			}
+			if ((data.padding === "RSA_PKCS1_PADDING") || (data.padding === "RSA_NO_PADDING")){
+				const text = hexString2Array(data.data); // String.fromCharCode.apply(null, hexString2Array(data.data))
+				const key = btoa(String.fromCharCode.apply(null, hexString2Array(data.pubKey)));
+				const crypt = new JSEncrypt();
+				crypt.setPublicKey(key);
+				const enc = crypt.encrypt(text, (data.padding === "RSA_PKCS1_PADDING"));
+				$("txtAreaOutput").value = (enc); // jsc.base16.encode(atob(enc))
+				return;
+			}
+			
+			subtle_encrypt(data.subtle).then(function(r){
+				$("txtAreaOutput").value = jsc.base16.encode(r);
+			}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnDecrypt_onclick() {
+	try{
+		var data = HTML_getNormalInput("decrypt");
+		if (!data.data){
+			alert("请先输入待解密数据！");
+			return;
+		}
+		
+		if (data.curveName === "SM2"){
+			var privateKey = HTML_getValue("txtD");
+			var encryptData = data.data;
+			if (data.padding === "DER"){
+				var rlist = parseDer(encryptData)[0].value;
+				encryptData = autoFix(rlist[0].value) + autoFix(rlist[1].value) + rlist[2].value + rlist[3].value;
+				Debug.writeln( "C1C3C2: 04" + encryptData);
+			}
+			else {
+				encryptData = encryptData.substr(2); // 去掉04
+			}
+			
+			var cipherMode = (data.padding === "C1C2C3")? 0 : 1; // 1 - C1C3C2，0 - C1C2C3，默认为1
+			var decryptData  = sm2.doDecrypt(encryptData, privateKey, cipherMode, {output: 'array'});
+			$("txtAreaOutput").value = jsc.base16.encode(decryptData);
+			
+		}else{
+			if (data.keyType === "EC"){
+				alert("ECDSA 不支持解密！");
+				return;
+			}
+
+			if ((data.padding === "RSA_SSLV23_PADDING") || (data.padding === "RSA_PKCS1_PSS_PADDING")){
+				alert("RSA解密不支持该PADDING！");
+				return;
+			}
+			if ((data.padding === "RSA_PKCS1_PADDING") || (data.padding === "RSA_NO_PADDING")){
+				const enc = (data.data); // btoa(String.fromCharCode.apply(null, hexString2Array(data.data)))
+				const key = btoa(String.fromCharCode.apply(null, hexString2Array(data.priKey)));
+				const crypt = new JSEncrypt();
+				crypt.setPrivateKey(key);
+				const dec = crypt.decrypt(enc, (data.padding === "RSA_PKCS1_PADDING"));
+				$("txtAreaOutput").value = dec? jsc.base16.encode(dec) : "decrypt fail！"; 
+				return;
+			}
+
+			subtle_decrypt(data.subtle).then(function(r){
+				$("txtAreaOutput").value = jsc.base16.encode(r); 
+			}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnPubKey_onclick() {
+	try{
+		var der = (HTML_getSelect("SelectKeyType").text === "RSA")? HTML_buildRSA() : HTML_buildEC();
+		$("txtAreaOutput").value = der;
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnPriKey_onclick() {
+	try{
+		var der = (HTML_getSelect("SelectKeyType").text === "RSA")? HTML_buildRSA(true) : HTML_buildEC(true);
+		$("txtAreaOutput").value = der;
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function ButtonCalcDegist_onclick() {
+	try{
+		var hashName = HTML_getSelect("SelectDigestName").text;
+		var hashData = HTML_getValue("txtAreaInput");
+	
+		var data_arr = jsc.base16.decode(hashData, {output: 'array'});
+		if (hashName === 'SM3'){
+			$("txtDigest").value = sm3(data_arr);
+		}else{
+			subtle_digest({algorithm:hashName, data: new Uint8Array(data_arr)}).then(function(r){
+				$("txtDigest").value = jsc.base16.encode(r); 
+			}, function(e){
+				Debug.writeln( "error message:" + e.message );
+			});
+		}
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function ButtonCalcSm3_onclick() {
+	try{
+		var N = $("txtN").value.slice(-128);
+		var M = HTML_getValue("txtAreaInput");
+		var id = "0080" + "31323334353637383132333435363738"; // 38373635343332313837363534333231
+		var abxy = "FFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFFFFFFFFFC28E9FA9E9D9F5E344D5A9E4BCF6509A7F39789F515AB8F92DDBCBD414D940E9332C4AE2C1F1981195F9904466A39C9948FE30BBFF2660BE1715A4589334C74C7BC3736A2F4F6779C59BDCEE36B692153D0A9877CC62A474002DF32E52139F0A0";
+		var data = id + abxy + N;
+		var Z = sm3(jsc.base16.decode(data, {output: 'array'}));
+		var md = sm3(jsc.base16.decode(Z + M, {output: 'array'}));
+
+		$("txtDigest").value = md;
+		Debug.writeln("ID+SM2国密曲线参数+公钥：\t" + data);
+		Debug.writeln("\tZ：\t" + Z + ",\tSM3：\t" + md);
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+
+function btnBase16Encode_onclick(name) {
+	try{
+		$(name).value = jsc.base16.encode($(name).value);
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnBase16Decode_onclick(name) {
+	try{
+		$(name).value = jsc.base16.decode($(name).value, {charset:'utf-8'});
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnBase64Encode_onclick(name) {
+	try{
+		var data = HTML_getValue(name);
+		var str = jsc.base16.decode(data, {charset:'utf-8'});
+		$(name).value = window.btoa(unescape(encodeURIComponent(str)));
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnBase64Decode_onclick(name) {
+	try{
+		var data = $(name).value;
+		var str = decodeURIComponent(escape(window.atob(data)));
+		$(name).value = jsc.base16.encode(str);
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+//-->
+	</script>
+	<BODY id="CmydhtmlDlg" onload="HTML_Load()" onunload="HTML_Unload()">
+		<TABLE WIDTH="900px" align="center">
+			<TR WIDTH="100%">
+				<TD>
+					<P>非对称密钥计算：</P>
+					<P>&nbsp;&nbsp;&nbsp;&nbsp;密钥类型：<SELECT id="SelectKeyType" name="SelectKeyType" onchange="return SelectKeyType_onchange()">
+							<OPTION>RSA</OPTION>
+							<OPTION selected>EC</OPTION>
+						</SELECT>&nbsp;&nbsp;
+						<SELECT id="SelectKeyParam" name="SelectKeyParam" onchange="return SelectKeyParam_onchange()">
+						</SELECT>&nbsp;
+						<SELECT id="SelectPadding" name="SelectPadding">
+						</SELECT>&nbsp; <INPUT id="btnGenKey" type="button" value="生成" name="btnGenKey" onclick="return btnGenKey_onclick()">&nbsp;&nbsp;&nbsp;
+						<INPUT id="btnSign" type="button" value="签名" name="btnSign" title="输入框有内容摘要签名" onclick="return btnSign_onclick()">&nbsp;
+						<INPUT id="btnVerify" type="button" value="验证" name="btnVerify" title="输入框有内容计算摘要，输出框为签名结果" onclick="return btnVerify_onclick()">&nbsp;&nbsp;
+						<INPUT id="btnEncrypt" type="button" value="加密" name="btnEncrypt" onclick="return btnEncrypt_onclick()">&nbsp;
+						<INPUT id="btnDecrypt" type="button" value="解密" name="btnDecrypt" onclick="return btnDecrypt_onclick()">&nbsp;&nbsp;
+						<INPUT id="btnPubKey" type="button" value="公钥" name="btnPubKey" onclick="return btnPubKey_onclick()">&nbsp;
+						<INPUT id="btnPriKey" type="button" value="私钥" name="btnPriKey" onclick="return btnPriKey_onclick()">
+					</P>
+					<P>
+						&nbsp;&nbsp; N:<INPUT id="txtN" type="text" maxLength="1024" size="114" name="txtN">
+						<INPUT id="ButtonCalcN" type="button" value="计算" name="ButtonCalcN" onclick="return ButtonCalcN_onclick()">
+						<br>
+						&nbsp;&nbsp; E:<INPUT id="txtE" type="text" maxLength="1024" size="14" name="txtE">
+						<br>
+						&nbsp;&nbsp; D:<INPUT id="txtD" type="text" maxLength="1024" size="114" name="txtD">
+						<INPUT id="ButtonCalcD" type="button" value="计算" name="ButtonCalcD" onclick="return ButtonCalcD_onclick()">
+						<br>
+						&nbsp;&nbsp; P:<INPUT id="txtP" type="text" size="114" name="txtP">
+						<br>
+						&nbsp;&nbsp; Q:<INPUT id="txtQ" type="text" size="114" name="txtQ">
+						<br>
+						DMP1:<INPUT id="txtDMP1" type="text" size="114" name="txtDMP1"> <INPUT id="ButtonCalcDMP1" type="button" value="计算" name="ButtonCalcDMP1" onclick="return ButtonCalcDMP1_onclick()">
+						<br>
+						DMQ1:<INPUT id="txtDMQ1" type="text" size="114" name="txtDMQ1"> <INPUT id="ButtonCalcDMQ1" type="button" value="计算" name="ButtonCalcDMQ1" onclick="return ButtonCalcDMQ1_onclick()">
+						<br>
+						IQMP:<INPUT id="txtIQMP" type="text" size="114" name="txtIQMP"> <INPUT id="ButtonCalcIQMP" type="button" value="计算" name="ButtonCalcIQMP" onclick="return ButtonCalcIQMP_onclick()">
+					</P>
+					<P>算法名称：<SELECT id="SelectDigestName" name="SelectDigestName">
+							<OPTION>SHA-1</OPTION>
+							<OPTION>SHA-256</OPTION>
+							<OPTION>SHA-384</OPTION>
+							<OPTION>SHA-512</OPTION>
+							<OPTION selected>SM3</OPTION>
+						</SELECT>&nbsp;&nbsp;<INPUT id="txtDigest" type="text" maxLength="512" size="92" name="txtDigest">
+						<INPUT id="ButtonCalcDegist" type="button" value="计算" name="ButtonCalcDegist" onclick="return ButtonCalcDegist_onclick()">
+						<INPUT id="ButtonCalcSm3" type="button" value="国密SM3" name="ButtonCalcSm3" onclick="return ButtonCalcSm3_onclick()">
+						<br>
+					</P>
+					<div class="field-block"><TEXTAREA id="txtAreaInput" name="txtAreaInput" rows="6" cols="120">
+						</TEXTAREA>
+						<div class="field-actions">
+							<label class="field-tag">输入框</label>
+							<INPUT id="btnBase16Encode1" type="button" value="BASE16编码" name="btnBase16Encode1" onclick="return btnBase16Encode_onclick('txtAreaInput')">
+							<INPUT id="btnBase16Decode1" type="button" value="BASE16解码" name="btnBase16Decode1" onclick="return btnBase16Decode_onclick('txtAreaInput')">
+							<INPUT id="btnBase64Encode1" type="button" value="BASE64编码" name="btnBase64Encode1" onclick="return btnBase64Encode_onclick('txtAreaInput')">
+							<INPUT id="btnBase64Decode1" type="button" value="BASE64解码" name="btnBase64Decode1" onclick="return btnBase64Decode_onclick('txtAreaInput')">
+						</div>
+					</div>
+					<div class="field-block"><TEXTAREA id="txtAreaOutput" name="txtAreaOutput" rows="6" cols="120">
+						</TEXTAREA>
+						<div class="field-actions">
+							<label class="field-tag">输出框</label>
+							<INPUT id="btnBase16Encode2" type="button" value="BASE16编码" name="btnBase16Encode2" onclick="return btnBase16Encode_onclick('txtAreaOutput')">
+							<INPUT id="btnBase16Decode2" type="button" value="BASE16解码" name="btnBase16Decode2" onclick="return btnBase16Decode_onclick('txtAreaOutput')">
+							<INPUT id="btnBase64Encode2" type="button" value="BASE64编码" name="btnBase64Encode2" onclick="return btnBase64Encode_onclick('txtAreaOutput')">
+							<INPUT id="btnBase64Decode2" type="button" value="BASE64解码" name="btnBase64Decode2" onclick="return btnBase64Decode_onclick('txtAreaOutput')">
+						</div>
+					</div>
+				</TD>
+			</TR>
+		</TABLE>
+	</BODY>
+</HTML>

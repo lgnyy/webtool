@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+	<title>软算法工具</title>
+	<script src="js/common.js"></script>
+	<style>
+		:root {
+			--bg: #f4f5f7;
+			--panel: #ffffff;
+			--border: #e4e7eb;
+			--text: #1f2937;
+			--muted: #6b7280;
+			--accent: #4f46e5;
+			--accent-soft: #eef2ff;
+			--accent-hover: #4338ca;
+			--shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+			--shadow-md: 0 4px 12px rgba(0,0,0,.08);
+		}
+
+		* { box-sizing: border-box; }
+
+		html, body {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			background: var(--bg);
+			color: var(--text);
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+			font-size: 14px;
+			line-height: 1.5;
+		}
+
+		.app {
+			display: flex;
+			flex-direction: column;
+			height: 100vh;
+			overflow: hidden;
+		}
+
+		.app-header {
+			flex: 0 0 auto;
+			background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+			color: #fff;
+			padding: 14px 24px;
+			box-shadow: var(--shadow-md);
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+
+		.app-title {
+			font-size: 18px;
+			font-weight: 600;
+			letter-spacing: .5px;
+			margin: 0;
+		}
+
+		.app-subtitle {
+			font-size: 12px;
+			opacity: .85;
+		}
+
+		.app-body {
+			flex: 1 1 auto;
+			display: flex;
+			min-height: 0;
+		}
+
+		.sidebar {
+			flex: 0 0 200px;
+			background: var(--panel);
+			border-right: 1px solid var(--border);
+			padding: 12px 8px;
+			overflow-y: auto;
+		}
+
+		.sidebar-title {
+			font-size: 11px;
+			font-weight: 600;
+			text-transform: uppercase;
+			letter-spacing: 1px;
+			color: var(--muted);
+			padding: 8px 12px 6px;
+		}
+
+		.nav-item {
+			display: block;
+			padding: 10px 12px;
+			margin: 2px 0;
+			border-radius: 8px;
+			color: var(--text);
+			text-decoration: none;
+			font-size: 14px;
+			cursor: pointer;
+			transition: background-color .15s ease, color .15s ease;
+			user-select: none;
+		}
+
+		.nav-item:hover {
+			background: var(--accent-soft);
+			color: var(--accent);
+		}
+
+		.nav-item.active {
+			background: var(--accent);
+			color: #fff;
+		}
+
+		.nav-external::after {
+			content: "↗";
+			float: right;
+			font-size: 12px;
+			opacity: .6;
+		}
+
+		.nav-divider {
+			height: 1px;
+			background: var(--border);
+			margin: 8px 4px;
+		}
+
+		.nav-btn {
+			display: block;
+			width: 100%;
+			text-align: left;
+			padding: 10px 12px;
+			margin: 2px 0;
+			border: none;
+			border-radius: 8px;
+			background: transparent;
+			color: var(--text);
+			font-size: 14px;
+			cursor: pointer;
+			font-family: inherit;
+			transition: background-color .15s ease, color .15s ease;
+		}
+
+		.nav-btn:hover {
+			background: #fef3c7;
+			color: #b45309;
+		}
+
+		.main {
+			flex: 1 1 auto;
+			display: flex;
+			flex-direction: column;
+			min-width: 0;
+		}
+
+		.frame-wrap {
+			flex: 3 1 0;
+			min-height: 0;
+			background: #fff;
+			border-bottom: 1px solid var(--border);
+			position: relative;
+		}
+
+		.frame-wrap iframe {
+			border: 0;
+			width: 100%;
+			height: 100%;
+			display: block;
+		}
+
+		.log-wrap {
+			flex: 1 1 0;
+			min-height: 120px;
+			display: flex;
+			flex-direction: column;
+			background: #1f2937;
+			color: #e5e7eb;
+			/* 默认隐藏，由 JS 控制显示 */
+			display: none;
+		}
+
+		.log-wrap.visible {
+			display: flex;
+		}
+
+		.log-header {
+			flex: 0 0 auto;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 6px 14px;
+			background: #111827;
+			border-bottom: 1px solid #374151;
+			font-size: 12px;
+			color: #9ca3af;
+		}
+
+		.log-clear {
+			background: transparent;
+			border: 1px solid #374151;
+			color: #d1d5db;
+			font-size: 12px;
+			padding: 2px 10px;
+			border-radius: 4px;
+			cursor: pointer;
+			font-family: inherit;
+		}
+
+		.log-clear:hover {
+			background: #374151;
+			color: #fff;
+		}
+
+		#txtAreaMessage {
+			flex: 1 1 auto;
+			width: 100%;
+			border: 0;
+			resize: none;
+			padding: 10px 14px;
+			background: #1f2937;
+			color: #d1fae5;
+			font-family: "JetBrains Mono", "Consolas", "Courier New", monospace;
+			font-size: 12px;
+			line-height: 1.6;
+			outline: none;
+		}
+
+		@media (max-width: 640px) {
+			.app-body { flex-direction: column; }
+			.sidebar { flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--border); }
+		}
+	</style>
+	<script>
+	//加载如果当前frame不存在则自动添加并显示当前frame
+	var frameList = {};
+	function addframe(src) {
+		if (frameList.CurrentFrame){
+			frameList.CurrentFrame.style.display = "none";
+		}
+		// 同步高亮菜单
+		document.querySelectorAll('.nav-item').forEach(function(el){
+			el.classList.toggle('active', el.getAttribute('data-src') === src);
+		});
+
+		if (frameList[src]){
+			frameList.CurrentFrame = frameList[src];
+			frameList.CurrentFrame.style.display = "";
+		}else{
+			var oel = document.createElement("iframe");
+			oel.setAttribute("name","showframe");
+			oel.setAttribute("src", src);
+			oel.setAttribute("width", "100%");
+			oel.setAttribute("height", "100%");
+			document.getElementById("tdframe").appendChild(oel);
+			frameList[src] = oel;
+			frameList.CurrentFrame = oel;
+		}
+	}
+
+	function HTML_Load()
+	{
+		txtAreaMessage.value = "";
+
+		// 默认隐藏日志（默认状态为隐藏）
+		var logWrap = document.querySelector('.log-wrap');
+		logWrap.classList.remove('visible');
+		document.getElementById('btnToggleLog').textContent = '显示日志';
+
+		if (typeof(window.addEventListener) === 'function'){
+			window.addEventListener("message", function(ev) {
+				if (typeof(ev.data) === "string"){
+					HTML_OutputMessage(ev.data); 
+				}
+			});
+
+			addframe(window.location.hash? (window.location.hash.substring(1) + ".html") : "dataconvert.html");
+		}else{
+			loadScript([]);
+			//window.close();
+		}
+	}
+
+	function HTML_UnLoad()
+	{
+	}
+
+
+	// 内部函数，输出调试信息
+	function HTML_OutputMessage(s){
+		var element = $("txtAreaMessage");
+		element.value += s;
+		element.scrollTop =element.scrollHeight;
+	}
+
+	// 内部函数，如果在显示web时设置了定时器，则定时执行脚本
+	function HTML_OnTimer(){
+		$("txtAreaMessage").value += "timer\n";
+		return 0;
+	}
+
+	function btnClearLog_onclick() {
+		$("txtAreaMessage").value = "";
+	}
+
+	// 切换日志显示/隐藏
+	function toggleLog() {
+		var logWrap = document.querySelector('.log-wrap');
+		var btn = document.getElementById('btnToggleLog');
+		if (logWrap.classList.contains('visible')) {
+			logWrap.classList.remove('visible');
+			btn.textContent = '显示日志';
+		} else {
+			logWrap.classList.add('visible');
+			btn.textContent = '隐藏日志';
+		}
+	}
+	</script>
+</head>
+<body onload="HTML_Load()" onunload="HTML_UnLoad()">
+	<div class="app">
+		<header class="app-header">
+			<h1 class="app-title">常用算法工具集</h1>
+			<span class="app-subtitle">v1.1.2.2026-09-08</span>
+		</header>
+
+		<div class="app-body">
+			<nav class="sidebar">
+					<div class="sidebar-title">工具菜单</div>
+					<a class="nav-item" data-src="dataconvert.html" onclick="addframe('dataconvert.html')">数据转换</a>
+					<a class="nav-item" data-src="digest.html"       onclick="addframe('digest.html')">摘要计算</a>
+					<a class="nav-item" data-src="pkey.html"         onclick="addframe('pkey.html')">非对称计算</a>
+					<a class="nav-item" data-src="cipher.html"       onclick="addframe('cipher.html')">对称计算</a>
+					<div class="nav-divider"></div>
+					<div class="sidebar-title">证书工具</div>
+					<a class="nav-item nav-external" href="ca.html" target="_blank" rel="noopener">CA 签发</a>
+					<a class="nav-item nav-external" href="csr.html" target="_blank" rel="noopener">CSR 生成</a>
+					<div class="nav-divider"></div>
+					<button class="nav-btn" id="btnToggleLog" onclick="toggleLog()">显示日志</button>
+				</nav>
+
+			<main class="main">
+				<section class="frame-wrap" id="tdframe"></section>
+				<section class="log-wrap">
+					<div class="log-header">
+						<span>日志输出</span>
+						<button class="log-clear" onclick="return btnClearLog_onclick()">清空</button>
+					</div>
+					<textarea id="txtAreaMessage" name="txtAreaMessage" wrap="off" spellcheck="false"></textarea>
+				</section>
+			</main>
+		</div>
+	</div>
+</body>
+</html>

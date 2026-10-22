@@ -1,0 +1,345 @@
+<HTML xmlns:st1>
+	<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+	<link rel="stylesheet" href="theme.css">
+	<script src="js/common.js" language="javascript"></script>
+	<script src="jsc/base16.js" language="javascript"></script>
+	<script language="javascript" id="clientEventHandlersJS">
+<!--
+
+
+function HTML_Load(){
+	$("txtAreaInput").value = "";
+	$("txtAreaOutput").value = "";
+	
+	loadScript(["jsc/tables/cp936.js", "jsc/tables/gbk-added.js", "jsc/tables/gb18030-ranges.js", "jsc/iconv-lite.js"]);	
+}
+
+function HTML_Unload(){
+}
+
+function btnBase64Encode_onclick() {
+	try{
+		var data = $("txtAreaInput").value;
+		var str = base16Decode(data, {charset:'utf-8'});
+		$("txtAreaOutput").value = window.btoa(unescape(encodeURIComponent(str)));
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}
+}
+
+function btnBase64Decode_onclick() {
+	try{
+		var data = $("txtAreaInput").value;
+		var str = decodeURIComponent(escape(window.atob(data)));
+		$("txtAreaOutput").value = base16Encode(str);
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnBase16Encode_onclick() {
+	try{
+		var index = $("selectCodepage").selectedIndex;
+	    var encoding = ['GBK','GB18030','UTF8','UCS-2LE','UCS-2BE','UCS-2BE'][index];
+		var data = $("txtAreaInput").value;
+		
+		$("txtAreaOutput").value = data.base16Encode({charset: encoding});
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnBase16Decode_onclick() {
+	try{
+		var index = $("selectCodepage").selectedIndex;
+	    var encoding = ['GBK','GB18030','UTF8','UCS-2LE','UCS-2BE','UCS-2BE'][index];
+		var data = $("txtAreaInput").value;
+		if (index === 4){
+			data = data.replace(new RegExp('5C' + '(?=(?:..)*$)', 'g'), '');
+		}
+		
+		$("txtAreaOutput").value = data.base16Decode({charset: encoding});
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnJSONString_onclick() {
+	var val = $("txtAreaInput").value;
+	$("txtAreaOutput").value = JSON.stringify(val);
+}
+
+function btnEval_onclick() {
+	var val = $("txtAreaInput").value;
+	var s = eval(val); // 局部
+	if (s){
+		$("txtAreaOutput").value = s;
+	}
+}
+function btnExecScript_onclick() {
+	var val = $("txtAreaInput").value;
+	execScript(val); // execScript(IE); window.eval(code)
+}
+
+
+function btnReverse_onclick() {
+	try{
+		var val = $("txtAreaInput").value;
+		$("txtAreaInput").value = val.match(/../g).reverse().join('');
+	}catch(e){
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnRemoveSpace_onclick() {
+	var val = $("txtAreaInput").value;
+	$("txtAreaInput").value = val.replace(/ /g, "").replace(/\t/g, "");
+}
+
+function btnRemoveEnter_onclick() {
+	var val = $("txtAreaInput").value;
+	$("txtAreaInput").value = val.replace(new RegExp("\r\n|\n", "g"), "");
+}
+
+function btnRemoveHexX_onclick() {
+	var x = $("txtX").value;
+	var val = $("txtAreaInput").value;
+	var reg = new RegExp(x.replace("\\", "\\\\"), "g");
+	$("txtAreaInput").value = val.replace(reg, ""); // /\\x/g
+}
+
+function btnAddHexX_onclick() {
+	var x = $("txtX").value
+	var val = $("txtAreaInput").value;
+	$("txtAreaInput").value = x + val.match(/../g).join(x);
+}
+
+function btnAddHexN_onclick() {
+	var val = $("txtAreaInput").value;
+	var ar = [];
+	for (var i=0; i<val.length; i+=64){
+		ar.push(val.substr(i,64));
+	}
+	$("txtAreaInput").value = ar.join("\n");
+}
+
+
+function JS_DecodeTLV(s){
+	var rev = function(val){ return val.match(/../g).reverse().join(''); }
+	var a = new Array();
+
+	var j=0;
+	for (var i=0; i<s.length; ){
+		var tag = s.substr(i, 4<<1);
+		var len = parseInt(rev(s.substr(i+(4<<1), 4<<1)), 16);
+
+		if (!((len >= 0) && (len < (s.length-i) << 1))){
+			Debug.writeln("err pos:" + i + ", err data:" + s.substr(i, 8<<1));
+			return a;
+		}
+		var data = s.substr(i+(8<<1), len<<1);
+
+		a[j++] = new Array(tag, data);
+		i += ((8 + len) << 1);
+	}
+	return a;
+}
+
+function btnTLVDecode_onclick() {
+	var s = $("txtAreaInput").value;
+	var a = JS_DecodeTLV(s);
+	for (var i=0; i<a.length; i++){
+		Debug.writeln(a[i][0] + "-" + a[i][1].length/2 + "-" + a[i][1]);
+		
+		if (a[i][1].length == 0){
+			break;
+		}
+
+		/*var a2 = JS_DecodeTLV(a[i][1]);
+		for (var i2=0; i2<a2.length; i2++){
+			Debug.writeln("  " + a2[i2][0] + "-" + a2[i2][1].length/2 + "-" + a2[i2][1]);
+		}*/
+	}	
+}
+
+function btnReadFile_onclick(){
+	if (typeof(FileReader) === "undefined"){
+		alert("您的浏览器不支持FileReader");
+		return;
+	}
+
+	var file = $("txtFileInput");
+	if (file.files.length === 0){
+		file.click();
+		if (file.files.length === 0){
+			return;
+		}
+	}
+
+	var reader = new FileReader();
+	if ( $("selectInputCode").selectedIndex === 0){
+		reader.readAsArrayBuffer(file.files[0]);
+		reader.onload = function () {
+			var bytes = new Uint8Array(this.result);
+			var len = bytes.byteLength;
+			var binary = "";
+			for (var i = 0; i < len; i++) {
+				var n = bytes[i];
+				binary += (((n < 16) && ('0' + n.toString(16))) || n.toString(16));
+			}
+			$("txtAreaInput").value = binary.toUpperCase();
+		};
+	}else{
+		reader.readAsText(file.files[0]);
+		reader.onload = function(){ $("txtAreaInput").value = reader.result; }
+	}
+}
+
+function btnAreaSwap_onclick(){
+	var s = $("txtAreaInput").value;
+	$("txtAreaInput").value = $("txtAreaOutput").value;
+	$("txtAreaOutput").value = s;
+}
+
+function btnWriteFile_onclick(){
+	var requestFileSystem = window.requestFileSystem||window.webkitRequestFileSystem;
+    if (!requestFileSystem){
+		alert("您的浏览器不支持RequestFileSystem");
+		return;
+	}
+	
+	var title = $("txtFileOutput").value;
+	var bb;
+	if ( $("selectOutputCode").selectedIndex === 0){
+		var str = $("txtAreaOutput").value;
+		var data = new Uint8Array(str.length / 2);
+		for (var i=0,j=0; i<str.length; i+=2){
+			data[j++] = parseInt(str.substr(i,2),16);
+		}
+		bb = new Blob([data], {type : "application/octet-stream"});
+	}else{
+		bb = new Blob([$("txtAreaOutput").value], {type : 'text/html'});
+	}
+	
+	// 存储路径: 'C:\Users\ljc\AppData\Local\Microsoft\Edge\User Data\Default\File System'
+	// 不能像对普通文件那样直接操作它们的真身，只能用JavaScrip。
+	requestFileSystem(window.PERSISTENT,1024*1024,function(filesystem){ // TEMPORARY
+		filesystem.root.getFile(title, { create: true }, function (fileEntry) { 
+			fileEntry.createWriter(function (fileWriter) { 
+				fileWriter.seek(fileWriter.length); 
+				fileWriter.onwriteend = function (e) { 
+					Debug.writeln("写文件（" + title +"）成功。");
+					console.log('Write completed.'); 
+				}; 
+				fileWriter.onerror = function (e) { 
+					console.log('Write failed: ' + e.toString()); 
+				}; 
+				fileWriter.write(bb); 
+			}, errorHandler); 
+		}, errorHandler); 
+	},errorHandler);
+	
+	function errorHandler(e){
+		Debug.writeln("Call FileSystem Fail: " + e.code);
+	}
+}
+		
+function btnDownFile_onclick(){
+	if (typeof(Blob) === "undefined"){
+		alert("您的浏览器不支持Blob");
+		return;
+	}
+
+	var title = $("txtFileOutput").value;
+	var bb;
+	if ( $("selectOutputCode").selectedIndex === 0){
+		var str = $("txtAreaOutput").value;
+		var data = new Uint8Array(str.length / 2);
+		for (var i=0,j=0; i<str.length; i+=2){
+			data[j++] = parseInt(str.substr(i,2),16);
+		}
+		bb = new Blob([data], {type : "application/octet-stream"});
+	}else{
+		bb = new Blob([$("txtAreaOutput").value], {type : 'text/html'});
+	}
+	var a = document.createElement('a');
+	if ((typeof a.download !== 'undefined')){
+		a.setAttribute('download', title);
+		a.setAttribute('href', URL.createObjectURL(bb));	
+		a.click();
+	}else{
+		a.target = '_blank';
+        var reader = new FileReader();
+        reader.onload = function(e) {
+			a.href = this.result;
+			a.click();
+		}
+        reader.readAsDataURL(bb);
+	}
+}
+
+//-->
+	</script>
+    </head>
+	<BODY id="DataConvertDlg" onload="HTML_Load()" onunload="HTML_Unload()">
+		<TABLE WIDTH="800px" align="center">
+			<TR WIDTH="100%">
+				<TD>
+					<P>数据转换：</P>
+					<P>&nbsp; <INPUT id="btnBase64Encode" type="button" value="BASE64编码" name="btnBase64Encode" onclick="return btnBase64Encode_onclick()">&nbsp;
+						<INPUT id="btnBase64Decode" type="button" value="BASE64解码" name="btnBase64Decode" onclick="return btnBase64Decode_onclick()">&nbsp;&nbsp;&nbsp;
+						<SELECT id="selectCodepage" name="selectCodepage" style="WIDTH:10%">
+							<OPTION selected>GBK</OPTION>
+							<OPTION>GB18030</OPTION>
+							<OPTION>UTF-8</OPTION>
+							<OPTION>UCS-2</OPTION>
+							<OPTION>UCS-2-BE</OPTION>
+							<OPTION>UCS-2-BE*</OPTION>
+						</SELECT><INPUT id="btnBase16Encode" type="button" value="BASE16编码" name="btnBase16Encode" onclick="return btnBase16Encode_onclick()">&nbsp;
+						<INPUT id="btnBase16Decode" type="button" value="BASE16解码" name="btnBase16Decode" onclick="return btnBase16Decode_onclick()">&nbsp;&nbsp;&nbsp;
+						<INPUT id="btnJSONString" type="button" value="JSON字符串" name="btnJSONString" onclick="return btnJSONString_onclick()">&nbsp;
+						<INPUT id="btnEval" type="button" value="Eval" name="btnEval" onclick="return btnEval_onclick()">&nbsp;
+						<INPUT id="btnExecScript" type="button" value="ExecScript" name="btnExecScript" onclick="return btnExecScript_onclick()"></P>
+					<P>&nbsp; <INPUT id="btnReverse" type="button" value="反转" name="btnReverse" onclick="return btnReverse_onclick()">&nbsp;&nbsp;&nbsp;
+						<INPUT id="btnRemoveSpace" type="button" value="去除空格" name="btnRemoveSpace" onclick="return btnRemoveSpace_onclick()">&nbsp;&nbsp;
+						<INPUT id="btnRemoveEnter" onclick="return btnRemoveEnter_onclick()" type="button" value="去除换行" name="btnRemoveEnter">
+						&nbsp;&nbsp;&nbsp; 
+						<INPUT id="txtX" size="5" value="\x" name="txtX">
+						<INPUT id="btnRemoveHexX" type="button" value='去除' name="btnRemoveHexX" onclick="return btnRemoveHexX_onclick()">&nbsp;
+						<INPUT id="btnAddHexX" type="button" value='增加' name="btnAddHexX" onclick="return btnAddHexX_onclick()">&nbsp;
+						<INPUT id="btnAddHexN" type="button" value='增加"\n"' name="btnAddHexN" onclick="return btnAddHexN_onclick()">&nbsp;&nbsp;
+						<INPUT id="btnTLVDecode" onclick="return btnTLVDecode_onclick()" type="button" value="TLV解析(P11)"
+							name="btnTLVDecode"></P>
+					<div class="field-block"><TEXTAREA id="txtAreaInput" name="txtAreaInput" rows="10" cols="120">
+						</TEXTAREA>
+						<div class="field-actions">
+							<label class="field-tag">输入框</label>
+							文件：<INPUT id="txtFileInput" type="file" size="64" name="txtFileInput">&nbsp;
+							<SELECT id="selectInputCode" name="selectInputCode" style="WIDTH=6%">
+								<OPTION selected>Binary</OPTION>
+								<OPTION>Text</OPTION>
+							</SELECT>&nbsp;
+							<INPUT id="btnReadFile" type="button" value='读取' name="btnReadFile" onclick="return btnReadFile_onclick()">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+							<INPUT id="btnAreaSwap" type="button" value='上下交换' name="btnAreaSwap" onclick="return btnAreaSwap_onclick()">&nbsp;
+						</div>
+					</div>
+					<div class="field-block"><TEXTAREA id="txtAreaOutput" name="txtAreaOutput" rows="10" cols="120">
+						</TEXTAREA>
+						<div class="field-actions">
+							<label class="field-tag">输出框</label>
+							文件：<INPUT id="txtFileOutput" size="32" value="tmp.txt" name="txtFileOutput">&nbsp;
+							<SELECT id="selectOutputCode" name="selectOutputCode" style="WIDTH=6%">
+								<OPTION selected>Binary</OPTION>
+								<OPTION>Text</OPTION>
+							</SELECT>&nbsp;
+							<!-- <INPUT id="btnWriteFile" type="button" value='写入' name="btnWriteFile" onclick="return btnWriteFile_onclick()">&nbsp; -->
+							<INPUT id="btnDownFile" type="button" value='下载' name="btnDownFile" onclick="return btnDownFile_onclick()">&nbsp;
+						</div>
+					</div>
+				</TD>
+			</TR>
+		</TABLE>
+	</BODY>
+</HTML>

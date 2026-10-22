@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <link rel="stylesheet" href="theme.css">
+    <meta name="description" content="jsrsasign : The 'jsrsasign' (RSA-Sign JavaScript Library) is a open source free pure JavaScript implementation of PKCS#1 v2.1 RSASSA-PKCS1-v1_5 RSA signing and validation algorithm." />
+
+    <title>JS Certification Authority :)</title>
+<script language="JavaScript" type="text/javascript">
+
+function doLoad(){  
+  if (typeof(Uint8Array) === 'undefined'){
+    var Mgr = window.external.GetAt("OBJ_MGR");
+    Mgr.CreateInstance('shell.application').ShellExecute(window.location.href);  
+  }else{ // 动态加载js
+    var src = document.createElement("script");
+    src.type = "text/javascript";
+    src.setAttribute("src", "js/ca-all-min.js");
+    src.onload = doRSA;
+    var head = document.head || document.getElementsByTagName('head')[0];
+    head.appendChild(src);
+  }
+}
+
+function doRSA(){
+  var f1 = document.form1;  
+  if (f1.cbRSA.checked){
+    f1.cakey1.value = ca.rsaKey.priKey;
+    f1.pubkey1.value = "-----BEGIN PUBLIC KEY-----\r\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuePQrcALJYJhMoTHbKDh\r\nIi+Z9wEF8UqKIoyLYIo036QB9kLBcKi1G8vNQQwnetC8DFnXV4G7AcdNTfU6pp6H\r\nAF9q7UNLNyydcG5567gCFOAytVb1ny5EcbdPg1QtfjOzCnBnoI4FUcR1CVoQd+Cx\r\nRwDCeWKBKkwuU5/dblxI5q/lva32lsY1r/kIYiNnLzIyZt1ImQGQOAJ1yat9D0Af\r\nb0jYegQjN6u1FoySlZhFPyMuZhlR54OuvCqL4yDZJ5PniclTEmdB+QQr8eM35m1W\r\naE/RtPiZLgIiG0uQJtUY8UFvREtGftDsm9CTyfJkK565j1Fn05zig5yO+f3zpucW\r\nrQIDAQAB\r\n-----END PUBLIC KEY-----";
+    f1.certparam1.value = "{\r\n  \"sigalg\": \"SHA256withRSA\",\r\n  \"sbjpubkey\": \"%PUBKEY%\",\r\n  \"cakey\": \"%PRVKEY%\"\r\n}\r\n"
+  }else{
+    f1.cakey1.value = ca.sm2Key.priKey;
+    f1.pubkey1.value = "-----BEGIN PUBLIC KEY-----\r\nMFkwEwYHKoZIzj0CAQYIKoEcz1UBgi0DQgAEBqOcKMnnT+fT96Z1FggOFcBzmX1j\r\nRf1LmajaVkzi3Xl94M04KTfF6fuoXkJpo6bhIn1QTuGCxyzjnc3Qge0dIw==\r\n-----END PUBLIC KEY-----";
+
+    f1.certparam1.value = "{\r\n  \"sigalg\": \"SM3withSM2\",\r\n  \"sbjpubkey\": \"%PUBKEY%\",\r\n  \"cakey\": \"%PRVKEY%\"\r\n}\r\n"
+  }
+}
+
+function updateParam(certparam, item){
+  if (!certparam.ext){
+    certparam.ext = [item];
+  }else {
+    var e = certparam.ext.find((e) => e.extname === item.extname);
+    if (!e){
+      certparam.ext.push(item);
+    }
+  }
+}
+
+function pemToBase64(pem, label){
+  var begin = `-----BEGIN ${label}-----`;
+  var end = `-----END ${label}-----`;
+  return pem.replace(begin, '').replace(end, '').replace(/\s+/g, ''); 
+}
+
+function doIssue() {
+  var f1 = document.form1;
+
+  f1.newcert1.value = "issuing ...";
+
+  var certparam;
+  try {
+    certparam = JSON.parse(f1.certparam1.value);
+  } catch (ex) {
+    f1.newcert1.value = "wrong certificate parameter: " + ex;
+    return;
+  }
+  if (f1.cbDual.checked){
+    updateParam(certparam, {"extname":"keyUsage", "names":["digitalSignature","nonRepudiation"]});
+  }
+
+  if (certparam.sbjpubkey === "%PUBKEY%") {
+    certparam.sbjpubkey = (f1.pubkey1.value);
+  }
+
+  if (certparam.cakey === "%PRVKEY%") {
+    certparam.cakey = (f1.cakey1.value);
+  }
+
+  var certpem = null;
+  try {
+    certpem = ca.makeCert(certparam);
+    f1.newcert1.value = certpem;
+  } catch (ex) { alert("PEM ERROR: " + ex); }
+  try {
+    var certdump = ca.dumpCert(certpem);
+    f1.newcert1dump.value = certdump;
+  } catch (ex) { alert("DUMP ERROR: " + ex); }
+
+  if (f1.cbDual.checked){
+    try {
+      f1.newcert1.value += ("\n\n------------------------dual certificate------------------------");
+      var sigCert = pemToBase64(certpem, "CERTIFICATE");
+      f1.newcert1.value += ("\n\nsig cert:\n" +  sigCert);
+
+      var isSM2 = (certparam.sigalg === "SM3withSM2");
+      var kp = (isSM2)? KEYUTIL.generateKeypair("EC", "sm2p256v1") : KEYUTIL.generateKeypair("RSA", certparam.sbjpubkey.n.bitLength());
+      console.log("prvKey:", KEYUTIL.getPEM(kp.prvKeyObj, "PKCS8PRV"));
+      var certparam2 = {sigalg: certparam.sigalg, cakey: (f1.cakey1.value), sbjpubkey: KEYUTIL.getPEM(kp.pubKeyObj)};
+      updateParam(certparam2, {"extname":"keyUsage", "names":["keyEncipherment","dataEncipherment","keyAgreement"]});
+      var encCert = pemToBase64(ca.makeCert(certparam2, ), "CERTIFICATE");
+      f1.newcert1.value += ("\n\nenc cert:\n" +  encCert);
+
+      var algOid, ekey, eprvKey;
+      if (isSM2) {
+        var key = [0xE2, 0x0C, 0x3A, 0x3D, 0x90, 0xED, 0x4E, 0x0A, 0x71, 0x3B, 0x82, 0x76, 0xA3, 0x86, 0x1E, 0xBA ];
+        algOid = "1.2.156.10197.1.104.1"; // SM4-ECB
+        ekey = "04" + sm2.doEncrypt(key, certparam.sbjpubkey.pubKeyHex, 0); // C1C2C3
+
+        var prvKeyD = kp.prvKeyObj.prvKeyHex.match(/../g).map(h => parseInt(h, 16)); // hexString2Array
+        eprvKey = sm4.encrypt(prvKeyD, key, {mode: "ECB", padding: "none"});
+      }else {
+        var key_str = "mykeyutf8charset";
+        var key = new TextEncoder().encode(key_str);;
+        //algOid = "2.16.840.1.101.3.4.1.2"; // AES-128-CBC // "2.16.840.1.101.3.4.1.1"; // AES-128-ECB | AES_128/ECB/NoPadding        
+
+        var rsa = KEYUTIL.getKey(KEYUTIL.getPEM(certparam.sbjpubkey)); 
+        var m = pkcs1pad2(key_str, certparam.sbjpubkey.n.bitLength() >> 3); // utf-8 decode
+        ekey = rsa.doPublic(m).toString(16);
+        
+        var prvKeyHex = pemtohex(KEYUTIL.getPEM(kp.prvKeyObj, "PKCS1PRV"), "RSA PRIVATE KEY");
+        var prvKey = prvKeyHex.match(/../g).map(h => parseInt(h, 16)); // hexString2Array
+        eprvKey = sm4.encrypt(prvKey, key, {mode: "ECB"});
+        // eprvKey = KEYUTIL.getPEM(kp.prvKeyObj.hex, "PKCS8PRV", key,  {encalg: "aes256-CBC"}); // not supported
+      }
+
+      var encCertCipher = "|" + encCert + "|" + algOid + "|" + hextob64(ekey) + "|" + hextob64(eprvKey);
+      f1.newcert1.value += ("\n\nenc private key:\n" +  encCertCipher);
+      
+    } catch (ex) { alert("PEM ERROR: " + ex); }
+  }
+}
+</script>
+  </head>
+
+  <body onload="doLoad()">
+
+    <div class="panel">
+      <h1>JS Certification Authority by parameter</h1>
+      <p>This is the world's first test certification authority by pure JavaScript ;)</p>
+      <hr/>
+
+<form name="form1">
+<h4>(Step1) Fill CA private key (PEM formatted PKCS#5 RSA/SM2 key)</h4>
+<textarea name="cakey1" cols="120" rows="4"></textarea>
+<br/>
+
+<h4>(Step2) Fill Public Key or <a href="csr.html" target="_blank">Certificate Request</a></h4>
+<textarea name="pubkey1" cols="120" rows="5"></textarea><br/>
+
+<h4>(Step3) Set certificate parameters</h4>
+<textarea name="certparam1" cols="120" rows="5">
+</textarea><br/>
+NOTE: The keywords "%PUBKEY%" and "%PRVKEY%" will be replaced
+by keys specified above.<br/>
+
+<!-- ============================================================== -->
+<h4>(Step4) Press "Issue Certificate" button</h4>
+&nbsp;RSA<input id="cbRSA" type="checkbox" value="off" onClick="doRSA()">
+&nbsp;Dual<input id="cbDual" type="checkbox" title="Simultaneously generate signatures and encryption certificates">
+<input type="button" value="Issue Certificate" onClick="doIssue();"/>
+<input type="reset" name="reset" value="Reset"/>
+
+<h2>Issued Certificate</h2>
+<textarea name="newcert1" cols="120" rows="8"></textarea>
+<br/>
+<textarea name="newcert1dump" cols="120" rows="8"></textarea>
+<h2>(example) full certificate parameters(SM2)</h2>
+<textarea name="certparam2" cols="120" rows="20">
+{
+  "serial": {"int": 1599326893},
+  "sigalg": "SM3withSM2",
+  "issuer": {"hex": "3043310B300906035504060C02434E310C300A060355040A0C034C474E310C300A060355040B0C034C474E3118301606035504030C0F4C474E20526F6F7420534D32204341"},
+  "notbefore": "240131114223Z",
+  "notafter": "250130114223Z",
+  "subject": {"str": "/C=CN/O=LGN/CN=test1"},
+  "sbjpubkey": "%PUBKEY%",
+  "ext": [
+    {"extname":"keyUsage", "names":["digitalSignature","nonRepudiation","keyEncipherment","dataEncipherment","keyAgreement"]},
+    {"extname":"extKeyUsage", "array":["clientAuth"]},
+    {"extname":"cRLDistributionPoints", "array":[{"dpname":{"full":[{"dn":"/CN=crl88888/OU=crl/O=TDR"}]}}]},
+    {"extname":"basicConstraints", "cA": false},
+    {"extname":"authorityKeyIdentifier", "kid": {"hex": "abdd59364ce30bdb93dcbd8b74d6cf5a44378b5f"}},
+    {"extname":"subjectKeyIdentifier", "kid": {"hex": "9516eebb459c50699c727396c342e4ec87d0f8cc"}}
+  ],
+  "cakey": "%PRVKEY%"
+}
+</textarea>
+</form>
+
+<h2>CA Certificates</h2>
+<ul>
+  <li><a href="certs/ca_rsa.crt" download>ca_rsa.crt</a> (RSA CA certificate)</li>
+  <li><a href="certs/ca_sm2.crt" download>ca_sm2.crt</a> (SM2 CA certificate)</li>
+</ul>
+
+    </div>
+
+  </body>
+</html>

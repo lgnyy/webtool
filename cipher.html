@@ -1,0 +1,183 @@
+<HTML xmlns:st1>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+	<link rel="stylesheet" href="theme.css">
+	<script src="js/common.js" language="javascript"></script>
+	<script src="jsc/base16.js" language="javascript"></script>
+	<script src="jsp/jsrsasign-all-min.js" language="javascript"></script>
+	<script src="jsp/mode-ecb.js" language="javascript"></script>	
+	<script language="javascript" id="clientEventHandlersJS">
+<!--
+
+function HTML_Load(){
+	$("txtAreaInput").value = "";
+	$("txtAreaOutput").value = "";
+	
+	loadScript(["jsp/sm4.js", "jsawait/subtle.js"]);
+}
+
+function HTML_Unload(){
+}
+
+function HTML_getSubtleInput(data){
+	var input = {algorithm:data.name, keyData:hexString2Uint8Array(data.key), data:hexString2Uint8Array(data.data)};
+	input.algorithm2 = {name:data.name, iv:hexString2Uint8Array(data.iv)}; // AesCbcParams
+	if (data.name === "AES-CBC"){
+		if (!data.padding){
+			throw new Error("不支持NOPADDING的AES-CBC！");
+		}
+	}
+	else if (data.name === "AES-GCM"){ // AesGcmParams={additionalData,tagLength:128}
+		input.algorithm2.iv = input.algorithm2.iv.subarray(0, 12); // the IV should be 96 bits long
+		input.algorithm2.additionalData = hexString2Uint8Array(data.aad);
+	}else if (data.name === "AES-CTR"){ // AesCtrParams
+		input.algorithm2.counter = input.algorithm2.iv; // 计数器的前半部分是随机数，后半部分用于计数器
+		input.algorithm2.length = 64; // AES it would be 64.
+	}
+	else if (data.name === "AES-ECB"){
+		input.padding = data.padding;
+	}
+	return input;
+}
+
+function btnEncrypt_onclick() {
+	try{
+		var element = $("selectAlgName");
+		var algName = element.options[element.selectedIndex].text;
+	
+		var data = {name:algName, data:$("txtAreaInput").value, key:$("txtKey").value, iv:$("txtIv").value, padding:$("checkPadding").checked};
+		data.aad = $("txtAad").value;
+		
+		if (algName.startsWith("DES-") || (algName === "AES-ECB")){
+			// mode-ecb: https://github.com/brix/crypto-js
+			var cfg = {mode: algName.endsWith("-CBC")? CryptoJS.mode.CBC : CryptoJS.mode.ECB};
+			if (data.padding){
+				cfg.padding = CryptoJS.pad.Pkcs7;
+			}
+			if (cfg.mode === CryptoJS.mode.CBC){
+				cfg.iv = CryptoJS.enc.Hex.parse(data.iv);
+			}
+			var plaintext = CryptoJS.enc.Hex.parse(data.data);
+			
+			if (algName === "AES-ECB") {
+				var encryptData = CryptoJS.AES.encrypt(plaintext, CryptoJS.enc.Hex.parse(data.key), cfg);
+				$("txtAreaOutput").value = encryptData;
+			}else if ((algName === "DES-ECB") || (algName === "DES-CBC")){
+				var encryptData = CryptoJS.DES.encrypt(plaintext, CryptoJS.enc.Hex.parse(data.key), cfg);
+				$("txtAreaOutput").value = encryptData;			
+			}else{
+				var key = CryptoJS.enc.Hex.parse((data.key.length === 32)? (data.key + data.key.substr(0,16)) : data.key);
+				var encryptData = CryptoJS.TripleDES.encrypt(plaintext, key, cfg);
+				$("txtAreaOutput").value = encryptData;			
+			}
+		}else if (algName.startsWith("SM4-")){
+			var mode = algName.endsWith("-CBC")? "CBC" : "ECB";
+			var padding = data.padding? undefined : "none";
+			var encryptData = sm4.encrypt(jsc.base16.decode(data.data,{output:"array"}), data.key, {mode: mode, iv: data.iv, padding: padding});
+			$("txtAreaOutput").value = encryptData;
+		}else if (algName.startsWith("AES-")){
+			subtle_encrypt(HTML_getSubtleInput(data)).then(function(r){
+				$("txtAreaOutput").value = jsc.base16.encode(r);
+			}, function(e){
+				$("txtAreaOutput").value = e.message;
+				Debug.writeln( "error message:" + e.message );
+			});
+		}else{
+		}
+	}catch(e){
+		$("txtAreaOutput").value = e.message;
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+function btnDecrypt_onclick() {
+	try{
+		var element = $("selectAlgName");
+		var algName = element.options[element.selectedIndex].text;
+		
+		var data = {name:algName, data:$("txtAreaInput").value, key:$("txtKey").value, iv:$("txtIv").value, padding:$("checkPadding").checked};
+		data.aad = $("txtAad").value;
+		
+		if (algName.startsWith("DES-") || (algName === "AES-ECB")){
+			var cfg = {mode: algName.endsWith("-CBC")? CryptoJS.mode.CBC : CryptoJS.mode.ECB};
+			if (data.padding){
+				cfg.padding = CryptoJS.pad.Pkcs7;
+			}
+			if (cfg.mode === CryptoJS.mode.CBC){
+				cfg.iv = CryptoJS.enc.Hex.parse(data.iv);
+			}
+			var ciphertext = CryptoJS.enc.Hex.parse(data.data);
+			
+			if (algName === "AES-ECB") {
+				var decryptData = CryptoJS.AES.decrypt({ciphertext: ciphertext}, CryptoJS.enc.Hex.parse(data.key), cfg);
+				$("txtAreaOutput").value = decryptData;
+			}else if ((algName === "DES-ECB") || (algName === "DES-CBC")){
+				var decryptData = CryptoJS.DES.decrypt({ciphertext: ciphertext}, CryptoJS.enc.Hex.parse(data.key), cfg);
+				$("txtAreaOutput").value = decryptData;	
+			}else{
+				var key = CryptoJS.enc.Hex.parse((data.key.length === 32)? (data.key + data.key.substr(0,16)) : data.key);
+				var decryptData = CryptoJS.TripleDES.decrypt({ciphertext: ciphertext}, key, cfg);
+				$("txtAreaOutput").value = decryptData;			
+			}
+		}else if (algName.startsWith("SM4-")){
+			var mode = algName.endsWith("-CBC")? "CBC" : "ECB";
+			var padding = data.padding? undefined : "none";
+			var decryptData = sm4.decrypt(data.data, data.key, {mode: mode, iv: data.iv, padding: padding, output:"array"});		
+			$("txtAreaOutput").value = jsc.base16.encode(decryptData);
+		}else if (algName.startsWith("AES-")){
+			subtle_decrypt(HTML_getSubtleInput(data)).then(function(r){
+				$("txtAreaOutput").value = jsc.base16.encode(r);
+			}, function(e){
+				$("txtAreaOutput").value = e.message;
+				Debug.writeln( "error message:" + e.message );
+			});
+		}else{
+		}
+	}catch(e){
+		$("txtAreaOutput").value = e.message;
+		Debug.writeln( "error message:" + e.message );
+	}	
+}
+
+
+//-->
+	</script>
+	<BODY id="CipherDlg" onload="HTML_Load()" onunload="HTML_Unload()">
+		<TABLE WIDTH="900px" align="center">
+			<TR>
+				<TD align="right" height="23">&nbsp;
+				</TD>
+			</TR>
+			<TR height="75" WIDTH="100%">
+				<TD vAlign="bottom" align="left">
+					<P>对称加解密计算工具：</P>
+					<P>&nbsp;&nbsp;&nbsp;&nbsp;算法名称：<SELECT id="selectAlgName" name="selectAlgName">
+							<OPTION>DES-ECB</OPTION>
+							<OPTION>DES-CBC</OPTION>
+							<OPTION>DES-EDE</OPTION>
+							<OPTION>DES-EDE-CBC</OPTION>
+							<OPTION>DES-EDE3</OPTION>
+							<OPTION>DES-EDE3-CBC</OPTION>
+							<OPTION>AES-ECB</OPTION>
+							<OPTION selected>AES-CBC</OPTION>
+							<OPTION>AES-GCM</OPTION>
+							<OPTION>AES-CTR</OPTION>							
+							<OPTION>SM4-ECB</OPTION>
+							<OPTION>SM4-CBC</OPTION>
+						</SELECT>
+						&nbsp;&nbsp;&nbsp;PADDING<INPUT id="checkPadding" type="checkbox" name="checkPadding" CHECKED>
+						&nbsp;附加：<INPUT id="txtAad" type="text" maxLength="64" size="32" name="txtAad" value="626C6F621B00000000000000"></P>
+					<P>&nbsp;&nbsp;&nbsp;&nbsp;密钥：&nbsp;&nbsp;<INPUT id="txtKey" type="text" maxLength="64" size="60" name="txtKey" value="11223344556677881122334455667788">&nbsp;&nbsp; 
+						初始向量：<INPUT id="txtIv" type="text" maxLength="64" size="32" name="txtIv" value="00000000000000000000000000000000"></P>
+					<P>&nbsp;&nbsp;&nbsp; <INPUT id="btnEncrypt" type="button" value="     加密     " name="btnEncrypt" onclick="return btnEncrypt_onclick()"
+							size="120">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <INPUT id="btnDecrypt" onclick="return btnDecrypt_onclick()" type="button" size="120" value="     解密       "
+							name="btnDecrypt"></P>
+					<P><TEXTAREA id="txtAreaInput" name="txtAreaInput" rows="6" cols="120">
+						</TEXTAREA>
+						<TEXTAREA id="txtAreaOutput" name="txtAreaOutput" rows="6" cols="120">
+						</TEXTAREA></P>
+				</TD>
+			</TR>
+		</TABLE>
+	</BODY>
+</HTML>
